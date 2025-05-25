@@ -36,8 +36,8 @@ class TaskMemAPIClient {
   }
 
   async validateKey() {
-    const data = await this.request('GET', '/auth/validate') as any;
-    return data;
+    const data = await this.request('GET', '/projects') as any;
+    return { valid: true, projects: data };
   }
 
   async trackUsage(endpoint: string, method: string) {

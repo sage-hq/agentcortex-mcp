@@ -1,6 +1,6 @@
 {
   "name": "taskmem-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TaskMem MCP Client - AI memory and task management for Claude, Cursor, and Windsurf. Connects to TaskMem Cloud.",
   "type": "module",
   "main": "dist/src/index.js",
