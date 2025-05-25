@@ -12,21 +12,36 @@ class TaskMemAPIClient {
         this.apiUrl = apiUrl;
     }
     async request(method, endpoint, body) {
-        const response = await fetch(`${this.apiUrl}${endpoint}`, {
-            method,
-            headers: {
-                'Authorization': `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: body ? JSON.stringify(body) : undefined,
-        });
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || `API request failed: ${response.statusText}`);
+        try {
+            const response = await fetch(`${this.apiUrl}${endpoint}`, {
+                method,
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: body ? JSON.stringify(body) : undefined,
+            });
+            if (!response.ok) {
+                let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
+                try {
+                    const error = await response.json();
+                    errorMessage = error.message || errorMessage;
+                }
+                catch {
+                    // If we can't parse the error response, use the status message
+                }
+                throw new Error(errorMessage);
+            }
+            // Track usage
+            await this.trackUsage(endpoint, method);
+            return response.json();
         }
-        // Track usage
-        await this.trackUsage(endpoint, method);
-        return response.json();
+        catch (error) {
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error(`Network error: ${error}`);
+        }
     }
     async validateKey() {
         const data = await this.request('GET', '/projects');
@@ -324,7 +339,11 @@ async function main() {
         }
     });
     // Tool: get_current_project
-    server.tool('get_current_project', 'Get information about the currently active project, including stats on memories and tasks.', {}, async () => {
+    server.tool('get_current_project', 'Get information about the currently active project, including stats on memories and tasks.', {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+    }, async () => {
         try {
             const project = await apiClient.getCurrentProject();
             if (!project) {
@@ -363,7 +382,11 @@ async function main() {
         }
     });
     // Tool: list_projects
-    server.tool('list_projects', 'List all available projects with their basic information and statistics.', {}, async () => {
+    server.tool('list_projects', 'List all available projects with their basic information and statistics.', {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+    }, async () => {
         try {
             const projects = await apiClient.listProjects();
             const projectData = projects.map((p) => ({
