@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "taskmem": {
+      "command": "node",
+      "args": ["/path/to/TaskMem/apps/mcp/dist/src/index.js"],
+      "env": {
+        "SUPABASE_URL": "https://your-project.supabase.co",
+        "SUPABASE_ANON_KEY": "your_supabase_anon_key",
+        "OPENAI_API_KEY": "sk-your_openai_api_key"
+      }
+    }
+  }
+}
