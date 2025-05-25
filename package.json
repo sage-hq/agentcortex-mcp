@@ -37,12 +37,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sage-hq/TaskMem.git",
-    "directory": "apps/mcp"
+    "url": "git+https://github.com/sage-hq/taskmem-mcp.git"
   },
   "homepage": "https://taskmem.com",
   "bugs": {
-    "url": "https://github.com/sage-hq/TaskMem/issues"
+    "url": "https://github.com/sage-hq/taskmem-mcp/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
