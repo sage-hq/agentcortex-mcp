@@ -1,4 +1,4 @@
-# TaskMem MCP Server
+# TaskMem MCP Client
 
 [![NPM Version](https://img.shields.io/npm/v/taskmem-mcp)](https://www.npmjs.com/package/taskmem-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -6,7 +6,7 @@
 
 > 🧠 The first MCP-native memory system for AI coding assistants. Never lose context again.
 
-TaskMem MCP Server provides persistent memory and intelligent task management for AI assistants through the Model Context Protocol (MCP). Compatible with **Claude Desktop**, **Cursor**, **Windsurf**, and any MCP-enabled client.
+TaskMem MCP Client provides persistent memory and intelligent task management for AI assistants through the Model Context Protocol (MCP). Connects to TaskMem Cloud for secure, scalable AI memory. Compatible with **Claude Desktop**, **Cursor**, **Windsurf**, and any MCP-enabled client.
 
 ## ✨ Features
 
@@ -19,8 +19,6 @@ TaskMem MCP Server provides persistent memory and intelligent task management fo
 
 ## 🚀 Quick Start
 
-### Option 1: Use with TaskMem Cloud (Recommended)
-
 1. **Get your API key** from [taskmem.com](https://taskmem.com)
 2. **Install the client**:
    ```bash
@@ -28,39 +26,12 @@ TaskMem MCP Server provides persistent memory and intelligent task management fo
    ```
 3. **Configure your AI assistant** (see [Configuration](#configuration))
 
-### Option 2: Self-Hosted Setup
-
-1. **Clone and install**:
-   ```bash
-   git clone https://github.com/sage-hq/TaskMem.git
-   cd TaskMem/apps/mcp
-   npm install
-   ```
-
-2. **Set up Supabase**:
-   ```bash
-   # Copy environment template
-   cp .env.example .env
-   
-   # Add your Supabase credentials
-   SUPABASE_URL=your_supabase_url
-   SUPABASE_ANON_KEY=your_supabase_anon_key
-   OPENAI_API_KEY=your_openai_api_key
-   ```
-
-3. **Build and run**:
-   ```bash
-   npm run build
-   npm start
-   ```
-
 ## ⚙️ Configuration
 
 ### Claude Desktop
 
 Add to your `claude_desktop_config.json`:
 
-**SaaS Version (Recommended):**
 ```json
 {
   "mcpServers": {
@@ -69,23 +40,6 @@ Add to your `claude_desktop_config.json`:
       "args": ["taskmem-mcp"],
       "env": {
         "TASKMEM_API_KEY": "your_api_key_here"
-      }
-    }
-  }
-}
-```
-
-**Self-Hosted Version:**
-```json
-{
-  "mcpServers": {
-    "taskmem": {
-      "command": "node",
-      "args": ["/path/to/TaskMem/apps/mcp/dist/src/index.js"],
-      "env": {
-        "SUPABASE_URL": "your_supabase_url",
-        "SUPABASE_ANON_KEY": "your_supabase_anon_key",
-        "OPENAI_API_KEY": "your_openai_api_key"
       }
     }
   }
@@ -165,97 +119,20 @@ Assistant: Task broken down into 3 subtasks:
 
 ## 🔧 Environment Variables
 
-### SaaS Version
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `TASKMEM_API_KEY` | Your TaskMem API key | ✅ |
+| `TASKMEM_API_KEY` | Your TaskMem API key from [taskmem.com](https://taskmem.com) | ✅ |
 | `TASKMEM_API_URL` | API endpoint (default: https://api.taskmem.com) | ❌ |
 
-### Self-Hosted Version
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `SUPABASE_URL` | Your Supabase project URL | ✅ |
-| `SUPABASE_ANON_KEY` | Supabase anonymous key | ✅ |
-| `OPENAI_API_KEY` | OpenAI API key for embeddings | ✅ |
+## 🔐 Pricing
 
-## 🏗️ Self-Hosted Database Setup
+TaskMem offers a generous free tier to get started:
 
-### Supabase Schema
+- **Free Tier**: 1,000 memories/month, 500 tasks/month
+- **Pro Tier**: Unlimited memories and tasks, priority support
+- **Enterprise**: Custom limits, dedicated support, SSO
 
-Run these SQL commands in your Supabase SQL editor:
-
-```sql
--- Enable vector extension
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- Projects table
-CREATE TABLE projects (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  description TEXT,
-  metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Memories table
-CREATE TABLE memories (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  memory_type TEXT,
-  importance INTEGER DEFAULT 5 CHECK (importance >= 1 AND importance <= 10),
-  embedding vector(1536),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Tasks table
-CREATE TABLE tasks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  description TEXT,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
-  priority TEXT DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high')),
-  dependencies UUID[],
-  metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Indexes for performance
-CREATE INDEX idx_memories_project_id ON memories(project_id);
-CREATE INDEX idx_memories_embedding ON memories USING ivfflat (embedding vector_cosine_ops);
-CREATE INDEX idx_tasks_project_id ON tasks(project_id);
-CREATE INDEX idx_tasks_status ON tasks(status);
-
--- Search function
-CREATE OR REPLACE FUNCTION search_memories(
-  query_embedding vector(1536),
-  match_count int DEFAULT 10,
-  project_id uuid DEFAULT NULL
-)
-RETURNS TABLE (
-  id uuid,
-  content text,
-  memory_type text,
-  importance integer,
-  created_at timestamptz,
-  similarity float
-)
-LANGUAGE sql
-AS $$
-  SELECT
-    m.id,
-    m.content,
-    m.memory_type,
-    m.importance,
-    m.created_at,
-    1 - (m.embedding <=> query_embedding) AS similarity
-  FROM memories m
-  WHERE (project_id IS NULL OR m.project_id = search_memories.project_id)
-  ORDER BY m.embedding <=> query_embedding
-  LIMIT match_count;
-$$;
-```
+Visit [taskmem.com/pricing](https://taskmem.com/pricing) for current pricing.
 
 ## 🧪 Development
 
