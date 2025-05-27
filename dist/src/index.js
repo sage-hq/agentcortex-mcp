@@ -3,11 +3,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import fetch from 'node-fetch';
-// API Client for TaskMem SaaS
-class TaskMemAPIClient {
+// API Client for AgentCortex SaaS
+class AgentCortexAPIClient {
     apiKey;
     apiUrl;
-    constructor(apiKey, apiUrl = 'https://api.taskmem.com') {
+    constructor(apiKey, apiUrl = 'https://api.agentcortex.dev') {
         this.apiKey = apiKey;
         this.apiUrl = apiUrl;
     }
@@ -44,8 +44,13 @@ class TaskMemAPIClient {
         }
     }
     async validateKey() {
-        const data = await this.request('GET', '/projects');
-        return { valid: true, projects: data };
+        try {
+            const data = await this.request('GET', '/projects');
+            return { valid: true, subscription: 'free', projects: data };
+        }
+        catch (error) {
+            throw new Error(`API validation failed: ${error.message}`);
+        }
     }
     async trackUsage(endpoint, method) {
         // Fire and forget usage tracking
@@ -73,44 +78,56 @@ class TaskMemAPIClient {
     }
     // Memory methods
     async storeMemory(projectId, content, memoryType, importance) {
-        return this.request('POST', '/memories', {
-            projectId,
+        if (!projectId) {
+            throw new Error('Project ID is required for memory operations');
+        }
+        return this.request('POST', `/projects/${projectId}/memories`, {
             content,
             memoryType,
             importance,
         });
     }
     async searchMemory(projectId, query, limit = 10) {
-        return this.request('POST', '/memories/search', {
-            projectId,
+        if (!projectId) {
+            throw new Error('Project ID is required for memory operations');
+        }
+        return this.request('POST', `/projects/${projectId}/memories/search`, {
             query,
             limit,
         });
     }
     async getMemories(projectId, limit = 20) {
+        if (!projectId) {
+            throw new Error('Project ID is required for memory operations');
+        }
         const params = new URLSearchParams({
             limit: limit.toString(),
-            ...(projectId && { projectId }),
         });
-        return this.request('GET', `/memories?${params}`);
+        return this.request('GET', `/projects/${projectId}/memories?${params}`);
     }
     async updateMemoryImportance(memoryId, importance) {
         return this.request('PUT', `/memories/${memoryId}`, { importance });
     }
     // Task methods
-    async createTask(projectId, title, priority) {
-        return this.request('POST', '/tasks', {
-            projectId,
+    async createTask(projectId, title, description, priority, dependencies) {
+        if (!projectId) {
+            throw new Error('Project ID is required for task operations');
+        }
+        return this.request('POST', `/projects/${projectId}/tasks`, {
             title,
-            priority,
+            description,
+            priority: priority || 'medium',
+            dependencies,
         });
     }
     async listTasks(projectId, status) {
+        if (!projectId) {
+            throw new Error('Project ID is required for task operations');
+        }
         const params = new URLSearchParams({
-            ...(projectId && { projectId }),
             ...(status && { status }),
         });
-        return this.request('GET', `/tasks?${params}`);
+        return this.request('GET', `/projects/${projectId}/tasks?${params}`);
     }
     async updateTaskStatus(taskId, status) {
         return this.request('PUT', `/tasks/${taskId}`, { status });
@@ -125,15 +142,15 @@ class TaskMemAPIClient {
 // Main function
 async function main() {
     // Get API key from environment
-    const apiKey = process.env.TASKMEM_API_KEY;
+    const apiKey = process.env.AGENTCORTEX_API_KEY;
     if (!apiKey) {
-        console.error('Error: TASKMEM_API_KEY environment variable is required');
-        console.error('Get your API key from https://taskmem.com/dashboard/api-keys');
+        console.error('Error: AGENTCORTEX_API_KEY environment variable is required');
+        console.error('Get your API key from https://agentcortex.dev/dashboard/api-keys');
         process.exit(1);
     }
-    const apiUrl = process.env.TASKMEM_API_URL || 'https://api.taskmem.com';
+    const apiUrl = process.env.AGENTCORTEX_API_URL || 'https://api.agentcortex.dev';
     // Initialize API client
-    const apiClient = new TaskMemAPIClient(apiKey, apiUrl);
+    const apiClient = new AgentCortexAPIClient(apiKey, apiUrl);
     // Validate API key
     try {
         const { valid, subscription } = await apiClient.validateKey();
@@ -149,8 +166,8 @@ async function main() {
     }
     // Create MCP server with comprehensive capabilities
     const server = new McpServer({
-        name: 'taskmem',
-        version: '1.0.0',
+        name: 'agentcortex',
+        version: '1.0.1',
     }, {
         capabilities: {
             tools: {},
@@ -159,6 +176,40 @@ async function main() {
     });
     // Store current project ID in memory
     let currentProjectId = null;
+    // Helper function to ensure we have a current project
+    async function ensureCurrentProject() {
+        if (currentProjectId) {
+            return currentProjectId;
+        }
+        // Try to get current project from API
+        try {
+            const response = await apiClient.getCurrentProject();
+            const project = response.project;
+            if (project && project.id) {
+                currentProjectId = project.id;
+                return project.id;
+            }
+        }
+        catch (error) {
+            // Current project not set, continue to list projects
+        }
+        // If no current project, get the first available project
+        try {
+            const response = await apiClient.listProjects();
+            const projects = response.projects || response;
+            if (projects && projects.length > 0) {
+                const projectId = projects[0].id;
+                currentProjectId = projectId;
+                // Set it as current project in the API
+                await apiClient.setCurrentProject(projectId);
+                return projectId;
+            }
+        }
+        catch (error) {
+            // Can't get projects
+        }
+        throw new Error('No project available. Please create a project first using create_project.');
+    }
     // Tool: store_memory
     server.tool('store_memory', 'Store important information in persistent memory for later retrieval. Use this to remember key facts, decisions, code patterns, or any information that might be useful in future conversations.', {
         content: z.string().min(1).describe('The content/information to store in memory. Can be facts, insights, code snippets, decisions, or any important information you want to remember for later use.'),
@@ -166,7 +217,8 @@ async function main() {
         importance: z.number().min(1).max(10).optional().describe('Importance level from 1-10 where 10 is most critical. Higher importance memories are prioritized in search results. Default: 5'),
     }, async ({ content, memoryType, importance }) => {
         try {
-            const memory = await apiClient.storeMemory(currentProjectId, content, memoryType, importance || 5);
+            const projectId = await ensureCurrentProject();
+            const memory = await apiClient.storeMemory(projectId, content, memoryType, importance || 5);
             return {
                 content: [
                     {
@@ -193,7 +245,9 @@ async function main() {
         limit: z.number().min(1).max(50).optional().describe('Maximum number of results to return (1-50). Default: 10. Higher limits may include less relevant results.'),
     }, async ({ query, limit }) => {
         try {
-            const results = await apiClient.searchMemory(currentProjectId, query, limit || 10);
+            const projectId = await ensureCurrentProject();
+            const response = await apiClient.searchMemory(projectId, query, limit || 10);
+            const results = response.memories || response;
             return {
                 content: [
                     {
@@ -223,7 +277,9 @@ async function main() {
         }).optional().describe('Time range filter'),
     }, async () => {
         try {
-            const memories = await apiClient.getMemories(currentProjectId, 20);
+            const projectId = await ensureCurrentProject();
+            const response = await apiClient.getMemories(projectId, 20);
+            const memories = response.memories || response;
             const memoryData = memories.map((m) => ({
                 id: m.id,
                 content: m.content,
@@ -284,7 +340,8 @@ async function main() {
         description: z.string().optional().describe('Project description'),
     }, async ({ name, description }) => {
         try {
-            const project = await apiClient.createProject(name, description);
+            const response = await apiClient.createProject(name, description);
+            const project = response.project || response;
             const projectData = {
                 id: project.id,
                 name: project.name,
@@ -345,7 +402,8 @@ async function main() {
         additionalProperties: false,
     }, async () => {
         try {
-            const project = await apiClient.getCurrentProject();
+            const response = await apiClient.getCurrentProject();
+            const project = response.project;
             if (!project) {
                 return {
                     content: [
@@ -388,7 +446,8 @@ async function main() {
         additionalProperties: false,
     }, async () => {
         try {
-            const projects = await apiClient.listProjects();
+            const response = await apiClient.listProjects();
+            const projects = response.projects || response;
             const projectData = projects.map((p) => ({
                 id: p.id,
                 name: p.name,
@@ -423,9 +482,11 @@ async function main() {
         description: z.string().optional().describe('Task description (optional)'),
         priority: z.enum(['low', 'medium', 'high']).optional().describe('Task priority (optional)'),
         dependencies: z.array(z.string()).optional().describe('Task IDs this depends on (optional)'),
-    }, async ({ title, priority }) => {
+    }, async ({ title, description, priority, dependencies }) => {
         try {
-            const task = await apiClient.createTask(currentProjectId, title, priority || 'medium');
+            const projectId = await ensureCurrentProject();
+            const response = await apiClient.createTask(projectId, title, description, priority || 'medium', dependencies);
+            const task = response.task || response;
             const taskData = {
                 id: task.id,
                 title: task.title,
@@ -459,9 +520,11 @@ async function main() {
             .describe('Filter by task status'),
         assignee: z.string().optional().describe('Filter by assignee'),
         priority: z.enum(['low', 'medium', 'high']).optional().describe('Filter by priority'),
-    }, async ({ status }) => {
+    }, async ({ status } = {}) => {
         try {
-            const tasks = await apiClient.listTasks(currentProjectId, status);
+            const projectId = await ensureCurrentProject();
+            const response = await apiClient.listTasks(projectId, status);
+            const tasks = response.tasks || response;
             const taskData = tasks.map((t) => ({
                 id: t.id,
                 title: t.title,
@@ -524,7 +587,8 @@ async function main() {
         context: z.string().optional().describe('Optional context for the suggestion'),
     }, async () => {
         try {
-            const suggestion = await apiClient.suggestNextTask(currentProjectId);
+            const projectId = await ensureCurrentProject();
+            const suggestion = await apiClient.suggestNextTask(projectId);
             return {
                 content: [
                     {
@@ -577,19 +641,10 @@ async function main() {
         projectId: z.string().optional().describe('Project ID (uses current if not provided)'),
     }, async ({ projectId }) => {
         try {
-            const targetProjectId = projectId || currentProjectId;
-            if (!targetProjectId) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Error: No project currently selected',
-                        },
-                    ],
-                };
-            }
+            const targetProjectId = projectId || await ensureCurrentProject();
             // Get project details
-            const projects = await apiClient.listProjects();
+            const response = await apiClient.listProjects();
+            const projects = response.projects || response;
             const project = projects.find((p) => p.id === targetProjectId);
             if (!project) {
                 return {
